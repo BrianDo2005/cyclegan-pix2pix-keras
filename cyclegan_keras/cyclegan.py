@@ -6,6 +6,7 @@ import random
 import numpy as np
 from scipy.misc import imread, imresize
 
+from keras import backend
 from keras.models import Input, Model
 from keras.optimizers import Adam
 
@@ -51,24 +52,33 @@ class CycleGAN(object):
                                                          id_lambda*lambda_b])
         else:
             self.adversarial_model = Model([real_a, real_b], [dis_fake_b, dis_fake_a, recon_a, recon_b])
-            self.adversarial_model.compile(optimizer=Adam(learning_rate, beta1), loss=[gan_loss, gan_loss, 'MAE', 'MAE'],
+            self.adversarial_model.compile(optimizer=Adam(learning_rate, beta1),
+                                           loss=[gan_loss, gan_loss, 'MAE', 'MAE'],
                                            loss_weights=[1.0, 1.0, lambda_a, lambda_b])
         
-        # Build discriminator model
+        # Build discriminators model
         real_a = Input(shape=image_size_a)
         fake_a = Input(shape=image_size_a)
-        real_b = Input(shape=image_size_b)
-        fake_b = Input(shape=image_size_b)
         
         dis_real_a = self.dis_a(real_a)
         dis_fake_a = self.dis_a(fake_a)
+        
+        self.discriminator_model_a = Model([real_a, fake_a],
+                                           [dis_real_a, dis_fake_a])
+        self.discriminator_model_a.compile(optimizer=Adam(learning_rate, beta1), loss=gan_loss)
+
+        real_b = Input(shape=image_size_b)
+        fake_b = Input(shape=image_size_b)
+
         dis_real_b = self.dis_b(real_b)
         dis_fake_b = self.dis_b(fake_b)
         
-        self.discriminator_model = Model([real_a, fake_a, real_b, fake_b], 
-                                         [dis_real_a, dis_fake_a, dis_real_b, dis_fake_b])
-        self.discriminator_model.compile(optimizer=Adam(learning_rate, beta1), loss=gan_loss)
+        self.discriminator_model_b = Model([real_b, fake_b],
+                                           [dis_real_b, dis_fake_b])
+        self.discriminator_model_b.compile(optimizer=Adam(learning_rate, beta1), loss=gan_loss)
         
+        self.lr = learning_rate
+        self.current_lr = learning_rate
         self.input_a = None
         self.input_b = None
         
@@ -76,30 +86,47 @@ class CycleGAN(object):
         self.input_a = ImageGenerator(root_dir_a, resize, crop_size)
         self.input_b = ImageGenerator(root_dir_b, resize, crop_size)
         
-    def fit(self, batch_size, pool_size, n_epoch, n_epoch_delay, steps_per_epoch, starting_epoch=1):
+    def decay_learning_rate(self, decay_rate):
+        self.current_lr = self.current_lr - decay_rate
+        backend.set_value(self.adversarial_model.optimizer.lr, self.current_lr)
+        backend.set_value(self.discriminator_model_a.optimizer.lr, self.current_lr)
+        backend.set_value(self.discriminator_model_b.optimizer.lr, self.current_lr)
+        
+    def fit(self, output_prefix, batch_size, pool_size, n_epoch, n_epoch_delay, steps_per_epoch, save_freq,
+            starting_epoch=1):
+        decay_rate = self.lr / n_epoch_delay
         real_labels = np.zeros((batch_size,) + self.dis_a.output_shape[1:])
         fake_labels = np.ones((batch_size,) + self.dis_a.output_shape[1:])
         for epoch in range(starting_epoch, n_epoch + n_epoch_delay + 1):
+            if epoch > n_epoch + 1:
+                self.decay_learning_rate(decay_rate)
+            
             pool_a = ImagePool(pool_size)
             pool_b = ImagePool(pool_size)
             for i in range(steps_per_epoch):
                 real_a = self.input_a(batch_size)
                 real_b = self.input_b(batch_size)
                 
-                pool_a.add_to_pool(self.gen_b(real_b))
-                pool_b.add_to_pool(self.gen_a(real_a))
-                
-                self.discriminator_model.train_on_batch([real_a, pool_a.generate_batch(batch_size),
-                                                         real_b, pool_b.generate_batch(batch_size)],
-                                                        [real_labels, fake_labels, real_labels, fake_labels])
                 if self.id_bool:
                     self.adversarial_model.train_on_batch([real_a, real_b],
                                                           [fake_labels, fake_labels, real_a, real_b, real_a, real_b])
                 else:
                     self.adversarial_model.train_on_batch([real_a, real_b],
                                                           [fake_labels, fake_labels, real_a, real_b])
-            # TODO Add learning rate decay
-            # TODO Add model save
+
+                pool_a.add_to_pool(self.gen_b.predict(real_b))
+                pool_b.add_to_pool(self.gen_a.predict(real_a))
+
+                self.discriminator_model_a.train_on_batch([real_a, pool_a.generate_batch(batch_size)],
+                                                          [real_labels, fake_labels])
+                self.discriminator_model_b.train_on_batch([real_b, pool_b.generate_batch(batch_size)],
+                                                          [real_labels, fake_labels])
+            
+            if epoch % save_freq == 0:
+                self.gen_a.save(output_prefix + ('_G_A_epoch%02d.h5' % epoch))
+                self.gen_b.save(output_prefix + ('_G_B_epoch%02d.h5' % epoch))
+                self.dis_a.save(output_prefix + ('_D_A_epoch%02d.h5' % epoch))
+                self.dis_b.save(output_prefix + ('_D_B_epoch%02d.h5' % epoch))
 
 
 class ImageGenerator(object):
