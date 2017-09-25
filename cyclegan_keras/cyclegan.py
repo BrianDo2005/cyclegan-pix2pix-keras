@@ -2,6 +2,7 @@ from __future__ import print_function, division
 
 import os
 import random
+import time
 
 import numpy as np
 from scipy.misc import imread, imresize
@@ -15,8 +16,8 @@ from .networks import build_generator_model, build_discriminator_model, get_inpu
 
 class CycleGAN(object):
 
-    def __init__(self, generator_name, discriminator_layers, image_size, input_nc, output_nc, init_num_filters,
-                 use_lsgan, use_dropout, norm_layer, learning_rate, beta1, id_bool, id_lambda, lambda_a, lambda_b):
+    def __init__(self, image_size, input_nc, output_nc, generator_name, discriminator_layers, init_num_filters,
+                 use_lsgan, use_dropout, norm_layer, learning_rate, beta1, lambda_a, lambda_b, id_bool, id_lambda):
         self.image_size = image_size
         self.id_bool = id_bool
         self.gen_a = build_generator_model(image_size, input_nc, output_nc, init_num_filters, generator_name,
@@ -50,11 +51,13 @@ class CycleGAN(object):
                                                                                        'MAE', 'MAE'],
                                            loss_weights=[1.0, 1.0, lambda_a, lambda_b, id_lambda*lambda_a, 
                                                          id_lambda*lambda_b])
+            self.loss_names = ['G_A', 'G_B', 'Cyc_A', 'Cyc_B', 'Id_A', 'Id_B']
         else:
             self.adversarial_model = Model([real_a, real_b], [dis_fake_b, dis_fake_a, recon_a, recon_b])
             self.adversarial_model.compile(optimizer=Adam(learning_rate, beta1),
                                            loss=[gan_loss, gan_loss, 'MAE', 'MAE'],
                                            loss_weights=[1.0, 1.0, lambda_a, lambda_b])
+        self.loss_names = ['G_A', 'G_B', 'Cyc_A', 'Cyc_B']
         
         # Build discriminators model
         real_a = Input(shape=image_size_a)
@@ -66,6 +69,7 @@ class CycleGAN(object):
         self.discriminator_model_a = Model([real_a, fake_a],
                                            [dis_real_a, dis_fake_a])
         self.discriminator_model_a.compile(optimizer=Adam(learning_rate, beta1), loss=gan_loss)
+        self.loss_names += ['Real_A', 'Fake_A']
 
         real_b = Input(shape=image_size_b)
         fake_b = Input(shape=image_size_b)
@@ -76,6 +80,7 @@ class CycleGAN(object):
         self.discriminator_model_b = Model([real_b, fake_b],
                                            [dis_real_b, dis_fake_b])
         self.discriminator_model_b.compile(optimizer=Adam(learning_rate, beta1), loss=gan_loss)
+        self.loss_names += ['Real_B', 'Fake_B']
         
         self.lr = learning_rate
         self.current_lr = learning_rate
@@ -92,35 +97,53 @@ class CycleGAN(object):
         backend.set_value(self.discriminator_model_a.optimizer.lr, self.current_lr)
         backend.set_value(self.discriminator_model_b.optimizer.lr, self.current_lr)
         
-    def fit(self, output_prefix, batch_size, pool_size, n_epoch, n_epoch_delay, steps_per_epoch, save_freq,
+    def fit(self, output_prefix, batch_size, pool_size, n_epoch, n_epoch_delay, steps_per_epoch, save_freq, print_freq,
             starting_epoch=1):
         decay_rate = self.lr / n_epoch_delay
         real_labels = np.zeros((batch_size,) + self.dis_a.output_shape[1:])
         fake_labels = np.ones((batch_size,) + self.dis_a.output_shape[1:])
+        
+        total_steps = 0
         for epoch in range(starting_epoch, n_epoch + n_epoch_delay + 1):
+            epoch_start_time = time.time()
             if epoch > n_epoch + 1:
                 self.decay_learning_rate(decay_rate)
             
             pool_a = ImagePool(pool_size)
             pool_b = ImagePool(pool_size)
+            
             for i in range(steps_per_epoch):
+                iter_start_time = time.time()
+                total_steps += 1
+                
                 real_a = self.input_a(batch_size)
                 real_b = self.input_b(batch_size)
                 
                 if self.id_bool:
-                    self.adversarial_model.train_on_batch([real_a, real_b],
-                                                          [fake_labels, fake_labels, real_a, real_b, real_a, real_b])
+                    g_loss = self.adversarial_model.train_on_batch([real_a, real_b],
+                                                                   [fake_labels, fake_labels, real_a, real_b,
+                                                                    real_a, real_b])
                 else:
-                    self.adversarial_model.train_on_batch([real_a, real_b],
-                                                          [fake_labels, fake_labels, real_a, real_b])
+                    g_loss = self.adversarial_model.train_on_batch([real_a, real_b],
+                                                                   [fake_labels, fake_labels, real_a, real_b])
 
                 pool_a.add_to_pool(self.gen_b.predict(real_b))
                 pool_b.add_to_pool(self.gen_a.predict(real_a))
 
-                self.discriminator_model_a.train_on_batch([real_a, pool_a.generate_batch(batch_size)],
-                                                          [real_labels, fake_labels])
-                self.discriminator_model_b.train_on_batch([real_b, pool_b.generate_batch(batch_size)],
-                                                          [real_labels, fake_labels])
+                d_a_loss = self.discriminator_model_a.train_on_batch([real_a, pool_a.generate_batch(batch_size)],
+                                                                     [real_labels, fake_labels])
+                d_b_loss = self.discriminator_model_b.train_on_batch([real_b, pool_b.generate_batch(batch_size)],
+                                                                     [real_labels, fake_labels])
+                
+                if total_steps % print_freq == 0:
+                    time_per_img = (time.time() - iter_start_time) / batch_size
+                    message = '(epoch: %d, iters: %d, time: %.3f) ' % (epoch, i, time_per_img)
+                    for name, loss in zip(self.loss_names, g_loss + d_a_loss + d_b_loss):
+                        message += '%s: %.3f ' % (name, loss)
+                    print(message)
+
+            print('End of epoch %d / %d \t Time Elapsed: %d sec' % (epoch, n_epoch + n_epoch_delay,
+                                                                    time.time() - epoch_start_time))
             
             if epoch % save_freq == 0:
                 self.gen_a.save(output_prefix + ('_G_A_epoch%02d.h5' % epoch))
