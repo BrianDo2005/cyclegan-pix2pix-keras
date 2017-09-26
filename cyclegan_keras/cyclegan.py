@@ -32,6 +32,9 @@ class CycleGAN(object):
         self.discriminator_model_a = None
         self.discriminator_model_b = None
         
+        if self.id_bool and self.input_nc != self.output_nc:
+            raise ValueError('Identity mapping is not supported with unequal channels between inputs and outputs.')
+        
         if continue_training:
             self.load_models(model_dir, exp_to_load, which_epoch)
         else:
