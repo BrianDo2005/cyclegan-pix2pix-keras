@@ -1,6 +1,6 @@
 import argparse
 
-from cyclegan_keras.cyclegan import PredictionModel
+from cyclegan_keras.cyclegan import PredictionModel, ImageFileGenerator, ImageFileOutputSink
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -20,6 +20,9 @@ if __name__ == '__main__':
     main.add_argument('--batch-size', type=int, default=32, help='number of images to predict at once')
     
     args = parser.parse_args()
-
+    
+    input_generator = ImageFileGenerator(args.data_dir, serial_access=True)
+    output_sink = ImageFileOutputSink(input_generator.images, args.output_dir, args.output_suffix)
+    
     predict_model = PredictionModel(args.model_dir, args.experiment_name, args.which_epoch, args.which_direction)
-    predict_model.predict(args.data_dir, args.output_dir, args.output_suffix, args.batch_size)
+    predict_model.predict(input_generator, output_sink, args.batch_size)

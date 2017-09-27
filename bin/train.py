@@ -2,7 +2,7 @@ import os
 import argparse
 import datetime
 
-from cyclegan_keras.cyclegan import CycleGAN
+from cyclegan_keras.cyclegan import CycleGAN, ImageFileGenerator
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -101,14 +101,17 @@ if __name__ == '__main__':
     if args.experiment_to_load is None:
         args.experiment_to_load = args.experiment_name
         
+    img_generator_a = ImageFileGenerator(os.path.join(args.rootdir, 'trainA'), args.scale_size, args.crop_size,
+                                         args.flip_images)
+    img_generator_b = ImageFileGenerator(os.path.join(args.rootdir, 'trainB'), args.scale_size, args.crop_size,
+                                         args.flip_images)
+        
     cyclegan_model = CycleGAN(args.image_size, args.input_nc, args.output_nc, args.generator_name, args.num_layers_dis,
                               args.init_filters_gen, args.init_filters_dis, not args.no_lsgan, not args.no_dropout,
                               args.norm_method, args.learning_rate, args.beta1, args.lambda_a, args.lambda_b,
                               args.use_indentity_loss, args.lambda_id, args.continue_training, args.model_dir,
                               args.experiment_to_load, args.which_epoch)
-    
-    cyclegan_model.load_input_images(os.path.join(args.rootdir, 'trainA'), os.path.join(args.rootdir, 'trainB'),
-                                     args.scale_size, args.crop_size, args.flip_images)
+    cyclegan_model.connect_inputs(img_generator_a, img_generator_b)
     cyclegan_model.fit(args.model_dir, args.experiment_name, args.batch_size, args.pool_size, args.n_epochs,
                        args.n_epochs_decay, args.steps_per_epoch, args.save_epoch_freq, args.print_freq,
                        args.starting_epoch)

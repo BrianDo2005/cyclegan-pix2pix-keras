@@ -117,9 +117,9 @@ class CycleGAN(object):
                                            [dis_real_b, dis_fake_b])
         self.discriminator_model_b.compile(optimizer=Adam(self.lr, self.beta1), loss=self.gan_loss)
     
-    def load_input_images(self, root_dir_a, root_dir_b, resize, crop_size, flip):
-        self.input_a = ImageGenerator(root_dir_a, resize, crop_size, flip)
-        self.input_b = ImageGenerator(root_dir_b, resize, crop_size, flip)
+    def connect_inputs(self, input_generator_a, input_generator_b):
+        self.input_a = input_generator_a
+        self.input_b = input_generator_b
         
     def decay_learning_rate(self, epoch, total_epochs):
         current_lr = self.lr - (epoch * self.lr / total_epochs)
@@ -145,8 +145,8 @@ class CycleGAN(object):
                 iter_start_time = time.time()
                 total_steps += 1
                 
-                real_a = self.input_a(batch_size)
-                real_b = self.input_b(batch_size)
+                real_a, _ = self.input_a(batch_size)
+                real_b, _ = self.input_b(batch_size)
                 
                 if self.id_bool:
                     g_loss = self.adversarial_model.train_on_batch([real_a, real_b],
@@ -193,34 +193,36 @@ class PredictionModel(object):
         self.model = load_model(os.path.join(model_dir, experiment_name + '_' + model_name +
                                              '_epoch%03d.h5' % epoch_number))
     
-    def predict(self, data_dir, output_dir, output_suffix, batch_size):
-        images = []
-        for root, _, fnames in sorted(os.walk(data_dir)):
-            for fname in fnames:
-                if ImageGenerator.is_image_file(fname):
-                    path = os.path.join(root, fname)
-                    images.append(path)
-        batch = np.array([imread(img).astype(np.float32) for img in images])
-        if len(batch.shape) < 4:
-            batch = batch.reshape(batch.shape + (1,))
-        if get_channel_axis() > 0:
-            batch = np.transpose(batch, [0, 3, 1, 2])
-        result_images = self.model.predict(batch, batch_size=batch_size)
-        if get_channel_axis() > 0:
-            result_images = np.transpose(result_images, [0, 2, 3, 1])
-        for i, img in enumerate(images):
-            base, ext = os.path.splitext(os.path.basename(img))
-            imsave(os.path.join(output_dir, base + output_suffix + ext), np.squeeze(result_images[i, :, :, :]))
+    def predict(self, input_generator, output_sink, batch_size):
+        result_images = []
+        continuing = True
+        while continuing:
+            batch, continuing = input_generator(batch_size)
+            result_images.extend(self.model.predict_on_batch(batch))
+        output_sink(result_images)
+        
+
+class InputGenerator(object):
+    
+    def __init__(self):
+        pass
+    
+    def __call__(self, batch_size):
+        raise NotImplementedError
 
 
-class ImageGenerator(object):
+class ImageFileGenerator(InputGenerator):
+    
     IMG_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.ppm', '.bmp']
     
-    def __init__(self, root_dir, resize=None, crop_size=None, flip=False):
+    def __init__(self, root_dir, resize=None, crop_size=None, flip=False, serial_access=False):
+        super(ImageFileGenerator, self).__init__()
         self.root_dir = root_dir
         self.resize = resize
         self.crop_size = crop_size
         self.flip = flip
+        self.serial_access = serial_access
+        self.position = 0
         
         self.images = []
         for root, _, fnames in sorted(os.walk(self.root_dir)):
@@ -231,7 +233,7 @@ class ImageGenerator(object):
 
     @staticmethod
     def is_image_file(filename):
-        return any(filename.lower().endswith(extension) for extension in ImageGenerator.IMG_EXTENSIONS)
+        return any(filename.lower().endswith(extension) for extension in ImageFileGenerator.IMG_EXTENSIONS)
     
     def random_crop(self, img):
         startx = random.randint(0, img.shape[0]-self.crop_size[0])
@@ -239,7 +241,18 @@ class ImageGenerator(object):
         return img[startx:startx+self.crop_size[0], starty:starty+self.crop_size[1]]
     
     def __call__(self, batch_size):
-        indexes = np.random.choice(len(self.images), batch_size)
+        if self.serial_access:
+            if self.position + batch_size <= len(self.images):
+                end = self.position + batch_size
+                continuing = True
+            else:
+                end = len(self.images)
+                continuing = False
+            indexes = range(self.position, end)
+            
+        else:
+            indexes = np.random.choice(len(self.images), batch_size)
+            continuing = True
         batch = []
         for idx in indexes:
             img = imread(self.images[idx]).astype(np.float32)
@@ -255,7 +268,33 @@ class ImageGenerator(object):
         batch = np.array(batch)
         if get_channel_axis() > 0:
             batch = np.transpose(batch, [0, 3, 1, 2])
-        return batch
+        return batch, continuing
+    
+    
+class OutputSink(object):
+    
+    def __init__(self):
+        pass
+    
+    def __call__(self, result_images):
+        raise NotImplementedError
+
+
+class ImageFileOutputSink(OutputSink):
+    
+    def __init__(self, image_filenames, output_dir, output_suffix):
+        super(ImageFileOutputSink, self).__init__()
+        self.image_filenames = image_filenames
+        self.output_dir = output_dir
+        self.output_suffix = output_suffix
+    
+    def __call__(self, result_images):
+        if get_channel_axis() > 0:
+            result_images = np.transpose(result_images, [0, 2, 3, 1])
+        for i, img in enumerate(self.image_filenames):
+            base, ext = os.path.splitext(os.path.basename(img))
+            imsave(os.path.join(self.output_dir, base + self.output_suffix + ext),
+                   np.squeeze(result_images[i, :, :, :]))
 
 
 class ImagePool(object):
