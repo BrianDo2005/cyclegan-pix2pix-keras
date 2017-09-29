@@ -42,7 +42,7 @@ if __name__ == '__main__':
                        help='number of layers in discriminator network (PatchGAN)')
     model.add_argument('--norm-method', type=str, choices=['instance', 'batch'], default='instance',
                        help='normalization method (instance or batch normalization)')
-    model.add_argument('--no_dropout', action='store_true', default=False, help='no dropout for the generator')
+    model.add_argument('--no-dropout', action='store_true', default=False, help='no dropout for the generator')
     
     training = parser.add_argument_group('training')
     training.add_argument('--n-epochs', type=int, default=100, help='# of epochs at starting learning rate')
@@ -101,15 +101,15 @@ if __name__ == '__main__':
     if args.experiment_to_load is None:
         args.experiment_to_load = args.experiment_name
         
-    img_generator_a = ImageFileGenerator(os.path.join(args.rootdir, 'trainA'), args.scale_size, args.crop_size,
+    img_generator_a = ImageFileGenerator(os.path.join(args.dataroot, 'trainA'), args.scale_size, args.crop_size,
                                          args.flip_images)
-    img_generator_b = ImageFileGenerator(os.path.join(args.rootdir, 'trainB'), args.scale_size, args.crop_size,
+    img_generator_b = ImageFileGenerator(os.path.join(args.dataroot, 'trainB'), args.scale_size, args.crop_size,
                                          args.flip_images)
         
     cyclegan_model = CycleGAN(args.image_size, args.input_nc, args.output_nc, args.generator_name, args.num_layers_dis,
                               args.init_filters_gen, args.init_filters_dis, not args.no_lsgan, not args.no_dropout,
                               args.norm_method, args.learning_rate, args.beta1, args.lambda_a, args.lambda_b,
-                              args.use_indentity_loss, args.lambda_id, args.continue_training, args.model_dir,
+                              args.use_identity_loss, args.lambda_id, args.continue_training, args.model_dir,
                               args.experiment_to_load, args.which_epoch)
     cyclegan_model.connect_inputs(img_generator_a, img_generator_b)
     cyclegan_model.fit(args.model_dir, args.experiment_name, args.batch_size, args.pool_size, args.n_epochs,

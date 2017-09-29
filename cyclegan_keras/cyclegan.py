@@ -1,6 +1,7 @@
 from __future__ import print_function, division
 
 import os
+import sys
 import random
 import time
 from glob import glob
@@ -150,11 +151,11 @@ class CycleGAN(object):
                 
                 if self.id_bool:
                     g_loss = self.adversarial_model.train_on_batch([real_a, real_b],
-                                                                   [fake_labels, fake_labels, real_a, real_b,
+                                                                   [real_labels, real_labels, real_a, real_b,
                                                                     real_a, real_b])
                 else:
                     g_loss = self.adversarial_model.train_on_batch([real_a, real_b],
-                                                                   [fake_labels, fake_labels, real_a, real_b])
+                                                                   [real_labels, real_labels, real_a, real_b])
 
                 pool_a.add_to_pool(self.gen_b.predict(real_b))
                 pool_b.add_to_pool(self.gen_a.predict(real_a))
@@ -166,13 +167,15 @@ class CycleGAN(object):
                 
                 if total_steps % print_freq == 0:
                     time_per_img = (time.time() - iter_start_time) / batch_size
-                    message = '(epoch: %d, iters: %d, time: %.3f) ' % (epoch, i, time_per_img)
+                    message = '(epoch: %d, iters: %d, time: %.3f) ' % (epoch, i+1, time_per_img)
                     for name, loss in zip(self.loss_names, g_loss + d_a_loss + d_b_loss):
                         message += '%s: %.3f ' % (name, loss)
                     print(message)
+                    sys.stdout.flush()
 
             print('End of epoch %d / %d \t Time Elapsed: %d sec' % (epoch, n_epochs + n_epochs_decay,
                                                                     time.time() - epoch_start_time))
+            sys.stdout.flush()
             
             if epoch % save_freq == 0:
                 self.gen_a.save(os.path.join(model_dir, '%s_G_A_epoch%03d.h5' % (experiment_name, epoch)))
