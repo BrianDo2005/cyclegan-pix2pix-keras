@@ -32,9 +32,8 @@ class CycleGAN(object):
         self.output_nc = output_nc
         self.input_a = None
         self.input_b = None
+        self.generative_model = None
         self.adversarial_model = None
-        self.discriminator_model_a = None
-        self.discriminator_model_b = None
         
         if self.id_bool and self.input_nc != self.output_nc:
             raise ValueError('Identity mapping is not supported with unequal channels between inputs and outputs.')
@@ -64,6 +63,12 @@ class CycleGAN(object):
         
         self.compile()
         
+    @staticmethod
+    def make_trainable(net, val):
+        net.trainable = val
+        for l in net.layers:
+            l.trainable = val
+        
     def load_models(self, model_dir, exp_to_load, which_epoch):
         if which_epoch == 'latest':
             g_a_models = sorted(glob(os.path.join(model_dir, exp_to_load + '_G_A_epoch*.h5')))
@@ -76,14 +81,32 @@ class CycleGAN(object):
         self.dis_b = load_model(os.path.join(model_dir, exp_to_load + '_D_B_epoch%03d.h5' % epoch_number))
         
     def compile(self):
-        # Build adversarial model
         image_size_a = get_input_shape(self.image_size, self.input_nc)
+        image_size_b = get_input_shape(self.image_size, self.output_nc)
+        
+        # Build adversarial models
+        real_a = Input(shape=image_size_a)
+        fake_a = Input(shape=image_size_a)
+        real_b = Input(shape=image_size_b)
+        fake_b = Input(shape=image_size_b)
+    
+        dis_real_a = self.dis_a(real_a)
+        dis_fake_a = self.dis_a(fake_a)
+        dis_real_b = self.dis_b(real_b)
+        dis_fake_b = self.dis_b(fake_b)
+    
+        self.adversarial_model = Model([real_a, fake_a, real_b, fake_b],
+                                       [dis_real_a, dis_fake_a, dis_real_b, dis_fake_b])
+        self.adversarial_model.compile(optimizer=Adam(self.lr, self.beta1), loss=self.gan_loss)
+        
+        self.make_trainable(self.adversarial_model, False)
+        
+        # Build generative model
         real_a = Input(shape=image_size_a)  # A
         fake_b = self.gen_a(real_a)  # B' = G_A(A)
         recon_a = self.gen_b(fake_b)  # A'' = G_B(G_A(A))
         dis_fake_b = self.dis_b(fake_b)  # D_A(G_A(A))
-    
-        image_size_b = get_input_shape(self.image_size, self.output_nc)
+        
         real_b = Input(shape=image_size_b)  # B
         fake_a = self.gen_b(real_b)  # A' = G_B(B)
         recon_b = self.gen_a(fake_a)  # B'' = G_A(G_B(B))
@@ -92,34 +115,13 @@ class CycleGAN(object):
         if self.id_bool:
             id_a = self.gen_b(real_a)  # I' = G_B(A)
             id_b = self.gen_a(real_b)  # I' = G_A(B)
-            self.adversarial_model = Model([real_a, real_b], [dis_fake_b, dis_fake_a, recon_a, recon_b, id_a, id_b])
-            self.adversarial_model.compile(optimizer=Adam(self.lr, self.beta1), loss=self.gen_loss_functions,
-                                           loss_weights=self.gen_loss_weights)
+            self.generative_model = Model([real_a, real_b], [dis_fake_b, dis_fake_a, recon_a, recon_b, id_a, id_b])
+            self.generative_model.compile(optimizer=Adam(self.lr, self.beta1), loss=self.gen_loss_functions,
+                                          loss_weights=self.gen_loss_weights)
         else:
-            self.adversarial_model = Model([real_a, real_b], [dis_fake_b, dis_fake_a, recon_a, recon_b])
-            self.adversarial_model.compile(optimizer=Adam(self.lr, self.beta1), loss=self.gen_loss_functions,
-                                           loss_weights=self.gen_loss_weights)
-        
-        # Build discriminator models
-        real_a = Input(shape=image_size_a)
-        fake_a = Input(shape=image_size_a)
-
-        dis_real_a = self.dis_a(real_a)
-        dis_fake_a = self.dis_a(fake_a)
-
-        self.discriminator_model_a = Model([real_a, fake_a],
-                                           [dis_real_a, dis_fake_a])
-        self.discriminator_model_a.compile(optimizer=Adam(self.lr, self.beta1), loss=self.gan_loss)
-
-        real_b = Input(shape=image_size_b)
-        fake_b = Input(shape=image_size_b)
-
-        dis_real_b = self.dis_b(real_b)
-        dis_fake_b = self.dis_b(fake_b)
-
-        self.discriminator_model_b = Model([real_b, fake_b],
-                                           [dis_real_b, dis_fake_b])
-        self.discriminator_model_b.compile(optimizer=Adam(self.lr, self.beta1), loss=self.gan_loss)
+            self.generative_model = Model([real_a, real_b], [dis_fake_b, dis_fake_a, recon_a, recon_b])
+            self.generative_model.compile(optimizer=Adam(self.lr, self.beta1), loss=self.gen_loss_functions,
+                                          loss_weights=self.gen_loss_weights)
     
     def connect_inputs(self, input_generator_a, input_generator_b):
         self.input_a = input_generator_a
@@ -127,9 +129,8 @@ class CycleGAN(object):
         
     def decay_learning_rate(self, epoch, total_epochs):
         current_lr = self.lr - (epoch * self.lr / total_epochs)
+        backend.set_value(self.generative_model.optimizer.lr, current_lr)
         backend.set_value(self.adversarial_model.optimizer.lr, current_lr)
-        backend.set_value(self.discriminator_model_a.optimizer.lr, current_lr)
-        backend.set_value(self.discriminator_model_b.optimizer.lr, current_lr)
         
     def fit(self, model_dir, experiment_name, batch_size, pool_size, n_epochs, n_epochs_decay, steps_per_epoch,
             save_freq, print_freq, starting_epoch):
@@ -156,25 +157,27 @@ class CycleGAN(object):
 
                 pool_a.add_to_pool(self.gen_b.predict(real_b))
                 pool_b.add_to_pool(self.gen_a.predict(real_a))
+                
+                self.make_trainable(self.adversarial_model, True)
 
-                _, d_a_loss_real, d_a_loss_fake = \
-                    self.discriminator_model_a.train_on_batch([real_a, pool_a.generate_batch(batch_size)],
-                                                              [real_labels, fake_labels])
-                _, d_b_loss_real, d_b_loss_fake = \
-                    self.discriminator_model_b.train_on_batch([real_b, pool_b.generate_batch(batch_size)],
-                                                              [real_labels, fake_labels])
+                _, d_a_loss_real, d_a_loss_fake, d_b_loss_real, d_b_loss_fake = \
+                    self.adversarial_model.train_on_batch([real_a, pool_a.generate_batch(batch_size),
+                                                           real_b, pool_b.generate_batch(batch_size)],
+                                                          [real_labels, fake_labels, real_labels, fake_labels])
                 d_loss = [d_a_loss_real, d_a_loss_fake, d_b_loss_real, d_b_loss_fake]
+                
+                self.make_trainable(self.adversarial_model, False)
                 
                 if self.id_bool:
                     _, g_loss_dis_b, g_loss_dis_a, g_loss_rec_a, g_loss_rec_b, g_loss_id_a, g_loss_id_b = \
-                        self.adversarial_model.train_on_batch([real_a, real_b],
-                                                              [real_labels, real_labels, real_a, real_b,
-                                                               real_a, real_b])
+                        self.generative_model.train_on_batch([real_a, real_b],
+                                                             [real_labels, real_labels, real_a, real_b,
+                                                              real_a, real_b])
                     g_loss = [g_loss_dis_b, g_loss_dis_a, g_loss_rec_a, g_loss_rec_b, g_loss_id_a, g_loss_id_b]
                 else:
                     _, g_loss_dis_b, g_loss_dis_a, g_loss_rec_a, g_loss_rec_b = \
-                        self.adversarial_model.train_on_batch([real_a, real_b],
-                                                              [real_labels, real_labels, real_a, real_b])
+                        self.generative_model.train_on_batch([real_a, real_b],
+                                                             [real_labels, real_labels, real_a, real_b])
                     g_loss = [g_loss_dis_b, g_loss_dis_a, g_loss_rec_a, g_loss_rec_b]
                 
                 iter_losses.append(g_loss + d_loss)
