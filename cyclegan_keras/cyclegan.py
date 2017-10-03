@@ -237,19 +237,21 @@ class CycleGAN(object):
                     print(message)
                     sys.stdout.flush()
 
-                    fake_a = self.gen_b.predict(real_b)[0, ...]
-                    fake_b = self.gen_a.predict(real_a)[0, ...]
-                    rec_a = self.gen_b.predict(fake_b)[0, ...]
-                    rec_b = self.gen_a.predict(fake_a)[0, ...]
+                    fake_a = self.gen_b.predict(real_b)
+                    fake_b = self.gen_a.predict(real_a)
+                    rec_a = self.gen_b.predict(fake_b)
+                    rec_b = self.gen_a.predict(fake_a)
                     if self.id_bool:
-                        id_a = self.gen_a.predict(real_b)[0, ...]
-                        id_b = self.gen_b.predict(real_a)[0, ...]
-                        visuals = OrderedDict([('real_A', real_a), ('fake_B', fake_b), ('rec_A', rec_a),
-                                               ('idt_B', id_b),  ('real_B', real_b), ('fake_A', fake_a),
-                                               ('rec_B', rec_b), ('idt_A', id_a)])
+                        id_a = self.gen_a.predict(real_b)
+                        id_b = self.gen_b.predict(real_a)
+                        visuals = OrderedDict([('real_A', real_a[0, ...]), ('fake_B', fake_b[0, ...]),
+                                               ('rec_A', rec_a[0, ...]), ('idt_B', id_b[0, ...]),
+                                               ('real_B', real_b[0, ...]), ('fake_A', fake_a[0, ...]),
+                                               ('rec_B', rec_b[0, ...]), ('idt_A', id_a[0, ...])])
                     else:
-                        visuals = OrderedDict([('real_A', real_a), ('fake_B', fake_b), ('rec_A', rec_a),
-                                               ('real_B', real_b), ('fake_A', fake_a), ('rec_B', rec_b)])
+                        visuals = OrderedDict([('real_A', real_a[0, ...]), ('fake_B', fake_b[0, ...]),
+                                               ('rec_A', rec_a[0, ...]), ('real_B', real_b[0, ...]),
+                                               ('fake_A', fake_a[0, ...]), ('rec_B', rec_b[0, ...])])
                     save_training_page(os.path.join(model_dir, 'web'), experiment_name, visuals, epoch)
 
             mean_loss = []
