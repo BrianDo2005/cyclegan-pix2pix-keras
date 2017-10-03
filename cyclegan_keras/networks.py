@@ -14,9 +14,7 @@ from .utils import get_channel_axis, get_input_shape
 
 def get_norm_layer(layer_name):
     if layer_name == 'batch':
-        return BatchNormalization(axis=get_channel_axis(), gamma_initializer=RandomNormal(1.0, 0.02),
-                                  beta_initializer=Zeros(), moving_mean_initializer=Zeros(),
-                                  moving_variance_initializer=Ones())
+        return BatchNormalization(axis=get_channel_axis())
     elif layer_name == 'instance':
         try:
             from keras_contrib.layers import InstanceNormalization
