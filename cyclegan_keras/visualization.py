@@ -19,7 +19,7 @@ class HTML:
         self.doc += '<h3>' + string + '</h3>\n'
 
     def begin_table(self, border=1):
-        self.doc += '<table style="border: %s; table-layout: fixed;">\n' % str(border)
+        self.doc += '<table border="%s" style="table-layout: fixed;">\n' % str(border)
     
     def end_table(self):
         self.doc += '</table>\n'
@@ -67,7 +67,6 @@ def save_image(image_numpy, image_path):
 
 
 def save_training_page(web_dir, experiment_name, visuals, epoch):
-    # update website
     webpage = HTML(web_dir, 'CycleGAN Experiment = %s' % experiment_name)
     for label, image_numpy in visuals.items():
         img_path = os.path.join(web_dir, 'images', 'epoch%.3d_%s.png' % (epoch, label))
