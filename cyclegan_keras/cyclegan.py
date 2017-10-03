@@ -5,6 +5,7 @@ import sys
 import random
 import time
 from glob import glob
+from collections import OrderedDict
 
 import numpy as np
 from scipy.misc import imread, imresize, imsave
@@ -12,8 +13,10 @@ from scipy.misc import imread, imresize, imsave
 from keras import backend
 from keras.models import Input, Model, load_model
 from keras.optimizers import Adam
+from keras_contrib.layers.normalization import InstanceNormalization
 
 from .networks import build_generator_model, build_discriminator_model, get_input_shape, get_channel_axis
+from .visualization import save_training_page
 
 
 class CycleGAN(object):
@@ -96,8 +99,8 @@ class CycleGAN(object):
             self.adversarial_model = Model([real_a, real_b], [dis_fake_b, dis_fake_a, recon_a, recon_b])
             self.adversarial_model.compile(optimizer=Adam(self.lr, self.beta1), loss=self.gen_loss_functions,
                                            loss_weights=self.gen_loss_weights)
-
-        # Build discriminators model
+        
+        # Build discriminator models
         real_a = Input(shape=image_size_a)
         fake_a = Input(shape=image_size_a)
 
@@ -130,8 +133,8 @@ class CycleGAN(object):
         
     def fit(self, model_dir, experiment_name, batch_size, pool_size, n_epochs, n_epochs_decay, steps_per_epoch,
             save_freq, print_freq, starting_epoch):
-        real_labels = np.zeros((batch_size,) + self.dis_a.output_shape[1:])
-        fake_labels = np.ones((batch_size,) + self.dis_a.output_shape[1:])
+        real_labels = np.ones((batch_size,) + self.dis_a.output_shape[1:])
+        fake_labels = np.zeros((batch_size,) + self.dis_a.output_shape[1:])
         
         total_steps = 0
         for epoch in range(starting_epoch, n_epochs + n_epochs_decay + 1):
@@ -142,39 +145,78 @@ class CycleGAN(object):
             pool_a = ImagePool(pool_size)
             pool_b = ImagePool(pool_size)
             
+            iter_losses = []
+            losses = []
             for i in range(steps_per_epoch):
                 iter_start_time = time.time()
                 total_steps += 1
                 
                 real_a, _ = self.input_a(batch_size)
                 real_b, _ = self.input_b(batch_size)
-                
-                if self.id_bool:
-                    g_loss = self.adversarial_model.train_on_batch([real_a, real_b],
-                                                                   [real_labels, real_labels, real_a, real_b,
-                                                                    real_a, real_b])
-                else:
-                    g_loss = self.adversarial_model.train_on_batch([real_a, real_b],
-                                                                   [real_labels, real_labels, real_a, real_b])
 
                 pool_a.add_to_pool(self.gen_b.predict(real_b))
                 pool_b.add_to_pool(self.gen_a.predict(real_a))
 
-                d_a_loss = self.discriminator_model_a.train_on_batch([real_a, pool_a.generate_batch(batch_size)],
-                                                                     [real_labels, fake_labels])
-                d_b_loss = self.discriminator_model_b.train_on_batch([real_b, pool_b.generate_batch(batch_size)],
-                                                                     [real_labels, fake_labels])
+                _, d_a_loss_real, d_a_loss_fake = \
+                    self.discriminator_model_a.train_on_batch([real_a, pool_a.generate_batch(batch_size)],
+                                                              [real_labels, fake_labels])
+                _, d_b_loss_real, d_b_loss_fake = \
+                    self.discriminator_model_b.train_on_batch([real_b, pool_b.generate_batch(batch_size)],
+                                                              [real_labels, fake_labels])
+                d_loss = [d_a_loss_real, d_a_loss_fake, d_b_loss_real, d_b_loss_fake]
+                
+                if self.id_bool:
+                    _, g_loss_dis_b, g_loss_dis_a, g_loss_rec_a, g_loss_rec_b, g_loss_id_a, g_loss_id_b = \
+                        self.adversarial_model.train_on_batch([real_a, real_b],
+                                                              [real_labels, real_labels, real_a, real_b,
+                                                               real_a, real_b])
+                    g_loss = [g_loss_dis_b, g_loss_dis_a, g_loss_rec_a, g_loss_rec_b, g_loss_id_a, g_loss_id_b]
+                else:
+                    _, g_loss_dis_b, g_loss_dis_a, g_loss_rec_a, g_loss_rec_b = \
+                        self.adversarial_model.train_on_batch([real_a, real_b],
+                                                              [real_labels, real_labels, real_a, real_b])
+                    g_loss = [g_loss_dis_b, g_loss_dis_a, g_loss_rec_a, g_loss_rec_b]
+                
+                iter_losses.append(g_loss + d_loss)
                 
                 if total_steps % print_freq == 0:
+                    mean_iter_loss = []
+                    for loss in zip(*iter_losses):
+                        mean_iter_loss.append(np.mean(loss))
+                    losses.extend(iter_losses)
+                    iter_losses = []
                     time_per_img = (time.time() - iter_start_time) / batch_size
                     message = '(epoch: %d, iters: %d, time: %.3f) ' % (epoch, i+1, time_per_img)
-                    for name, loss in zip(self.loss_names, g_loss + d_a_loss + d_b_loss):
+                    for name, loss in zip(self.loss_names, mean_iter_loss):
                         message += '%s: %.3f ' % (name, loss)
                     print(message)
                     sys.stdout.flush()
 
+                    fake_a = self.gen_b.predict(real_b)
+                    fake_b = self.gen_a.predict(real_a)
+                    rec_a = self.gen_b.predict(fake_b)
+                    rec_b = self.gen_a.predict(fake_a)
+                    if self.id_bool:
+                        id_a = self.gen_a.predict(real_b)
+                        id_b = self.gen_b.predict(real_a)
+                        visuals = OrderedDict([('real_A', real_a), ('fake_B', fake_b), ('rec_A', rec_a),
+                                               ('idt_B', id_b),  ('real_B', real_b), ('fake_A', fake_a),
+                                               ('rec_B', rec_b), ('idt_A', id_a)])
+                    else:
+                        visuals = OrderedDict([('real_A', real_a), ('fake_B', fake_b), ('rec_A', rec_a),
+                                               ('real_B', real_b), ('fake_A', fake_a), ('rec_B', rec_b)])
+                    save_training_page(os.path.join(model_dir, 'web'), experiment_name, visuals, epoch)
+
+            mean_loss = []
+            for loss in zip(*losses):
+                mean_loss.append(np.mean(loss))
+            
             print('End of epoch %d / %d \t Time Elapsed: %d sec' % (epoch, n_epochs + n_epochs_decay,
                                                                     time.time() - epoch_start_time))
+            message = 'Epoch %d Losses: ' % epoch
+            for name, loss in zip(self.loss_names, mean_loss):
+                message += '%s: %.3f ' % (name, loss)
+            print(message)
             sys.stdout.flush()
             
             if epoch % save_freq == 0:
@@ -194,14 +236,19 @@ class PredictionModel(object):
             epoch_number = int(which_epoch)
         model_name = 'G_A' if which_direction == 'AtoB' else 'G_B'
         self.model = load_model(os.path.join(model_dir, experiment_name + '_' + model_name +
-                                             '_epoch%03d.h5' % epoch_number))
+                                             '_epoch%03d.h5' % epoch_number),
+                                custom_objects={'InstanceNormalization': InstanceNormalization})
     
     def predict(self, input_generator, output_sink, batch_size):
         result_images = []
         continuing = True
+        batch_num = 1
         while continuing:
+            print('Starting Batch: %d' % batch_num)
+            sys.stdout.flush()
             batch, continuing = input_generator(batch_size)
             result_images.extend(self.model.predict_on_batch(batch))
+            batch_num += 1
         output_sink(result_images)
         
 
@@ -243,6 +290,9 @@ class ImageFileGenerator(InputGenerator):
         starty = random.randint(0, img.shape[1]-self.crop_size[1])
         return img[startx:startx+self.crop_size[0], starty:starty+self.crop_size[1]]
     
+    def reset(self):
+        self.position = 0
+    
     def __call__(self, batch_size):
         if self.serial_access:
             if self.position + batch_size <= len(self.images):
@@ -252,6 +302,7 @@ class ImageFileGenerator(InputGenerator):
                 end = len(self.images)
                 continuing = False
             indexes = range(self.position, end)
+            self.position = end
             
         else:
             indexes = np.random.choice(len(self.images), batch_size)
@@ -260,13 +311,16 @@ class ImageFileGenerator(InputGenerator):
         for idx in indexes:
             img = imread(self.images[idx]).astype(np.float32)
             if self.resize is not None:
-                img = imresize(img, self.resize, mode='F')
+                img = imresize(img, self.resize)
             if self.crop_size is not None:
                 img = self.random_crop(img)
             if len(img.shape) < 3:
                 img = np.reshape(img, img.shape + (1,))
             if self.flip:
                 img = img[:, ::-1, :]
+            # WARNING: This was copied from PyTorch version and may not be applicable to images not in [0,255]
+            img = (img/(img.max()/2)) - 1
+            # END WARNING
             batch.append(img)
         batch = np.array(batch)
         if get_channel_axis() > 0:
@@ -297,7 +351,7 @@ class ImageFileOutputSink(OutputSink):
         for i, img in enumerate(self.image_filenames):
             base, ext = os.path.splitext(os.path.basename(img))
             imsave(os.path.join(self.output_dir, base + self.output_suffix + ext),
-                   np.squeeze(result_images[i, :, :, :]))
+                   np.squeeze(result_images[i]))
 
 
 class ImagePool(object):
