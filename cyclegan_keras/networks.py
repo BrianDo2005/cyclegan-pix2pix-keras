@@ -8,16 +8,8 @@ from keras.models import Model, Input
 from keras.layers import (Conv2D, Conv2DTranspose, BatchNormalization, LeakyReLU, Dropout, ZeroPadding2D, concatenate,
                           Activation, Add, UpSampling2D)
 from keras.initializers import Zeros, RandomNormal
-from keras import backend
 
-
-def get_input_shape(image_size, num_channels):
-    return ((num_channels,) + tuple(image_size)) if backend.image_data_format() == 'channels_first' \
-        else (tuple(image_size) + (num_channels,))
-
-
-def get_channel_axis():
-    return 1 if backend.image_data_format() == 'channels_first' else -1
+from .utils import get_channel_axis, get_input_shape
 
 
 def get_norm_layer(layer_name):
