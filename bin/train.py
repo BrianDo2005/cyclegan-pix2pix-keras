@@ -2,7 +2,8 @@ import os
 import argparse
 import datetime
 
-from cyclegan_keras.cyclegan import CycleGAN, ImageFileGenerator
+from cyclegan_keras.cyclegan import CycleGAN
+from cyclegan_keras.generators import ImageFileGenerator
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -42,6 +43,9 @@ if __name__ == '__main__':
                        help='number of layers in discriminator network (PatchGAN)')
     model.add_argument('--norm-method', type=str, choices=['instance', 'batch'], default='instance',
                        help='normalization method (instance or batch normalization)')
+    model.add_argument('--deconv-method', type=str, choices=['deconv', 'upsample'], default='upsample',
+                       help='method to use for deconvolution. "deconv" uses the Conv2DTranspose layer, '
+                            'while "upsample" uses Upsampling2D followed by Conv2D')
     model.add_argument('--no-dropout', action='store_true', default=False, help='no dropout for the generator')
     
     training = parser.add_argument_group('training')
@@ -113,9 +117,9 @@ if __name__ == '__main__':
         
     cyclegan_model = CycleGAN(args.image_size, args.input_nc, args.output_nc, args.generator_name, args.num_layers_dis,
                               args.init_filters_gen, args.init_filters_dis, not args.no_lsgan, not args.no_dropout,
-                              args.norm_method, args.learning_rate, args.beta1, args.lambda_a, args.lambda_b,
-                              args.use_identity_loss, args.lambda_id, args.stacked_training, args.continue_training,
-                              args.model_dir, args.experiment_to_load, args.which_epoch)
+                              args.norm_method, args.deconv_method, args.learning_rate, args.beta1, args.lambda_a,
+                              args.lambda_b, args.use_identity_loss, args.lambda_id, args.stacked_training,
+                              args.continue_training, args.model_dir, args.experiment_to_load, args.which_epoch)
     cyclegan_model.connect_inputs(img_generator_a, img_generator_b)
     cyclegan_model.fit(args.model_dir, args.experiment_name, args.batch_size, args.pool_size, args.n_epochs,
                        args.n_epochs_decay, args.steps_per_epoch, args.pretrain_iter, args.save_epoch_freq,
