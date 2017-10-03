@@ -57,6 +57,9 @@ if __name__ == '__main__':
     training.add_argument('--pool_size', type=int, default=50,
                           help=('the size of image buffer that stores previously generated images '
                                 'for discrimnator training'))
+    training.add_argument('--pretrain-iter', type=int, default=1000,
+                          help=('the number of pretraining batches to run on the adversarial model'
+                                ' before starting GAN'))
     training.add_argument('--beta1', type=float, default=0.5, help='momentum term of adam')
     training.add_argument('--learning-rate', type=float, default=0.0002, help='initial learning rate for adam')
     training.add_argument('--no-lsgan', action='store_true', default=False,
@@ -113,5 +116,5 @@ if __name__ == '__main__':
                               args.experiment_to_load, args.which_epoch)
     cyclegan_model.connect_inputs(img_generator_a, img_generator_b)
     cyclegan_model.fit(args.model_dir, args.experiment_name, args.batch_size, args.pool_size, args.n_epochs,
-                       args.n_epochs_decay, args.steps_per_epoch, args.save_epoch_freq, args.print_freq,
-                       args.starting_epoch)
+                       args.n_epochs_decay, args.steps_per_epoch, args.pretrain_iter, args.save_epoch_freq,
+                       args.print_freq, args.starting_epoch)

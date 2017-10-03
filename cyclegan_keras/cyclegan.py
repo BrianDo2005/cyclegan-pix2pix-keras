@@ -133,10 +133,50 @@ class CycleGAN(object):
         backend.set_value(self.adversarial_model.optimizer.lr, current_lr)
         
     def fit(self, model_dir, experiment_name, batch_size, pool_size, n_epochs, n_epochs_decay, steps_per_epoch,
-            save_freq, print_freq, starting_epoch):
+            pretrain_iters, save_freq, print_freq, starting_epoch):
         real_labels = np.ones((batch_size,) + self.dis_a.output_shape[1:])
         fake_labels = np.zeros((batch_size,) + self.dis_a.output_shape[1:])
         
+        if pretrain_iters > 0:
+            print('Beginning Pre-Training of Adversarial Model...')
+            sys.stdout.flush()
+            self.make_trainable(self.adversarial_model, True)
+            iter_losses = []
+            losses = []
+            for step in range(1, pretrain_iters + 1):
+                iter_start_time = time.time()
+                real_a, _ = self.input_a(batch_size)
+                real_b, _ = self.input_b(batch_size)
+                fake_a = self.gen_b.predict(real_b)
+                fake_b = self.gen_a.predict(real_a)
+
+                _, d_a_loss_real, d_a_loss_fake, d_b_loss_real, d_b_loss_fake = \
+                    self.adversarial_model.train_on_batch([real_a, fake_a, real_b, fake_b],
+                                                          [real_labels, fake_labels, real_labels, fake_labels])
+                d_loss = [d_a_loss_real, d_a_loss_fake, d_b_loss_real, d_b_loss_fake]
+                iter_losses.append(d_loss)
+                
+                if step % print_freq == 0:
+                    mean_iter_loss = []
+                    for loss in zip(*iter_losses):
+                        mean_iter_loss.append(np.mean(loss))
+                    losses.extend(iter_losses)
+                    iter_losses = []
+                    time_per_img = (time.time() - iter_start_time) / batch_size
+                    message = '(Pre-Train, iter: %d, time: %.3f) ' % (step+1, time_per_img)
+                    for name, loss in zip(self.loss_names, mean_iter_loss):
+                        message += '%s: %.3f ' % (name, loss)
+                    print(message)
+                    sys.stdout.flush()
+                
+            self.make_trainable(self.adversarial_model, False)
+            mean_loss = []
+            for loss in zip(*losses):
+                mean_loss.append(np.mean(loss))
+            print('(Discriminator Pre-Training) Real_A: %.3f, Fake_A: %.3f, Real_B: %.3f, Fake_B: %.3f' %
+                  tuple(mean_loss))
+            sys.stdout.flush()
+            
         total_steps = 0
         for epoch in range(starting_epoch, n_epochs + n_epochs_decay + 1):
             epoch_start_time = time.time()
