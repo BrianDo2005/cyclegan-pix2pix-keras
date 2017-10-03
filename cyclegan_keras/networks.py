@@ -4,9 +4,9 @@ import math
 
 import numpy as np
 
-from keras.models import Model, Sequential, Input
+from keras.models import Model, Input
 from keras.layers import (Conv2D, Conv2DTranspose, BatchNormalization, LeakyReLU, Dropout, ZeroPadding2D, concatenate,
-                          Activation, Add)
+                          Activation, Add, UpSampling2D)
 from keras.initializers import Zeros, RandomNormal
 from keras import backend
 
@@ -31,8 +31,7 @@ def get_norm_layer(layer_name):
         except ImportError:
             raise ImportError('keras_contrib is required to use InstanceNormalization layers. Install keras_contrib or '
                               'switch normalization to "batch".')
-        return InstanceNormalization(axis=get_channel_axis(), gamma_initializer=RandomNormal(1.0, 0.02),
-                                     beta_initializer=Zeros())
+        return InstanceNormalization()
     else:
         return NotImplementedError('Normalization layer name [%s] is not recognized.' % layer_name)
 
@@ -97,9 +96,13 @@ def build_unet(image_size, input_nc, output_nc, init_num_filters, norm_layer='ba
     conv = Conv2D(init_num_filters * max(2 ** n_levels - 1, 8), kernel_size, strides=(2, 2), padding='same',
                   use_bias=use_bias, kernel_initializer=conv_kernel_init, bias_initializer=conv_bias_init)(relu)
     relu = Activation('relu')(conv)
-    deconv = Conv2DTranspose(init_num_filters * max(2 ** n_levels - 2, 8), kernel_size, strides=(2, 2), padding='same',
-                             use_bias=use_bias, kernel_initializer=conv_kernel_init,
-                             bias_initializer=conv_bias_init)(relu)
+    # deconv = Conv2DTranspose(init_num_filters * max(2 ** n_levels - 2, 8), kernel_size, strides=(2, 2),
+    #                          padding='same', use_bias=use_bias, kernel_initializer=conv_kernel_init,
+    #                          bias_initializer=conv_bias_init)(relu)
+    up = UpSampling2D(relu)
+    deconv = Conv2D(init_num_filters * max(2 ** n_levels - 2, 8), kernel_size, padding='same',
+                    use_bias=use_bias, kernel_initializer=conv_kernel_init,
+                    bias_initializer=conv_bias_init)(up)
 
     for i in reversed(range(1, n_levels - 1)):
         norm = get_norm_layer(norm_layer)(deconv)
@@ -108,9 +111,12 @@ def build_unet(image_size, input_nc, output_nc, init_num_filters, norm_layer='ba
         if not autoencoder:
             norm = concatenate(norm, [nodes_for_concat[i]], axis=get_channel_axis())
         relu = Activation('relu')(norm)
-        deconv = Conv2DTranspose(init_num_filters * max(2 ** i, 8), kernel_size, strides=(2, 2),
-                                 padding='same', use_bias=use_bias, kernel_initializer=conv_kernel_init,
-                                 bias_initializer=conv_bias_init)(relu)
+        # deconv = Conv2DTranspose(init_num_filters * max(2 ** i, 8), kernel_size, strides=(2, 2),
+        #                          padding='same', use_bias=use_bias, kernel_initializer=conv_kernel_init,
+        #                          bias_initializer=conv_bias_init)(relu)
+        up = UpSampling2D(relu)
+        deconv = Conv2D(init_num_filters * max(2 ** i, 8), kernel_size, padding='same',
+                        use_bias=use_bias, kernel_initializer=conv_kernel_init, bias_initializer=conv_bias_init)(up)
             
     norm = get_norm_layer(norm_layer)(deconv)
     if not autoencoder:
@@ -161,9 +167,12 @@ def build_resnet(image_size, input_nc, output_nc, init_num_filters, norm_layer='
                                use_dropout, dropout_rate, use_bias)
     
     for i in reversed(range(n_downsamples)):
-        conv = Conv2DTranspose(init_num_filters * (2**(i+1)), kernel_size, strides=(2, 2), padding='same',
-                               kernel_initializer=conv_kernel_init, bias_initializer=conv_bias_init)(act)
-        norm = get_norm_layer(norm_layer)(conv)
+        # deconv = Conv2DTranspose(init_num_filters * (2**i), kernel_size, strides=(2, 2), padding='same',
+        #                          kernel_initializer=conv_kernel_init, bias_initializer=conv_bias_init)(act)
+        up = UpSampling2D()(act)
+        deconv = Conv2D(init_num_filters * (2 ** i), kernel_size, padding='same',
+                        kernel_initializer=conv_kernel_init, bias_initializer=conv_bias_init)(up)
+        norm = get_norm_layer(norm_layer)(deconv)
         act = Activation('relu')(norm)
 
     pad = padding_layer(outer_padding_size)(act)
@@ -199,17 +208,19 @@ def build_conv_block(previous, num_filters, kernel_size, norm_layer, padding_lay
 # TODO Add ImageGAN
 def build_pixel_gan(input_shape, init_num_filters, norm_layer, use_bias, final_activation):
     conv_kernel_init, conv_bias_init = get_conv_initialiers()
-    model = Sequential()
-    model.add(Conv2D(init_num_filters, (1, 1), padding='same', use_bias=use_bias, kernel_initializer=conv_kernel_init,
-                     bias_initializer=conv_bias_init, input_shape=input_shape))
-    model.add(LeakyReLU(0.2))
-    model.add(Conv2D(init_num_filters * 2, (1, 1), padding='same', use_bias=use_bias,
-                     kernel_initializer=conv_kernel_init, bias_initializer=conv_bias_init))
-    model.add(get_norm_layer(norm_layer))
-    model.add(LeakyReLU(0.2))
-    model.add(Conv2D(init_num_filters * 2, (1, 1), padding='same', use_bias=use_bias, activation=final_activation,
-                     kernel_initializer=conv_kernel_init, bias_initializer=conv_bias_init))
-
+    input_img = Input(shape=input_shape)
+    conv = Conv2D(init_num_filters, (1, 1), padding='same', use_bias=use_bias, kernel_initializer=conv_kernel_init,
+                  bias_initializer=conv_bias_init, input_shape=input_shape)(input_img)
+    act = LeakyReLU(0.2)(conv)
+    conv = Conv2D(init_num_filters * 2, (1, 1), padding='same', use_bias=use_bias, kernel_initializer=conv_kernel_init,
+                  bias_initializer=conv_bias_init)(act)
+    norm = get_norm_layer(norm_layer)(conv)
+    act = LeakyReLU(0.2)(norm)
+    conv = Conv2D(init_num_filters * 2, (1, 1), padding='same', use_bias=use_bias, activation=final_activation,
+                  kernel_initializer=conv_kernel_init, bias_initializer=conv_bias_init)(act)
+    
+    model = Model(inputs=input_img, outputs=conv)
+    
     return model
 
 
@@ -226,24 +237,26 @@ def build_nlayer_discriminator(image_size, input_nc, init_num_filters=64, n_laye
     elif n_layers == -1:  # Image-wise GAN DIscriminator
         n_layers = np.log2(image_size[0])
     
-    model = Sequential()
-    model.add(Conv2D(init_num_filters, kernel_size, strides=(2, 2), padding='same', use_bias=use_bias,
-                     kernel_initializer=conv_kernel_init, bias_initializer=conv_bias_init, input_shape=input_shape))
-    model.add(LeakyReLU(0.2))
+    input_img = Input(shape=input_shape)
+    conv = Conv2D(init_num_filters, kernel_size, strides=(2, 2), padding='same', use_bias=use_bias,
+                  kernel_initializer=conv_kernel_init, bias_initializer=conv_bias_init,
+                  input_shape=input_shape)(input_img)
+    act = LeakyReLU(0.2)(conv)
 
     for n in range(1, n_layers):
-        model.add(Conv2D(init_num_filters * min(2 ** n, 8), kernel_size, strides=(2, 2), padding='same',
-                         use_bias=use_bias, kernel_initializer=conv_kernel_init, bias_initializer=conv_bias_init))
-        model.add(get_norm_layer(norm_layer))
+        conv = Conv2D(init_num_filters * min(2 ** n, 8), kernel_size, strides=(2, 2), padding='same', use_bias=use_bias,
+                      kernel_initializer=conv_kernel_init, bias_initializer=conv_bias_init)(act)
+        norm = get_norm_layer(norm_layer)(conv)
         if use_dropout:
-            model.add(Dropout(dropout_rate))
-        model.add(LeakyReLU(0.2))
+            norm = Dropout(dropout_rate)(norm)
+        act = LeakyReLU(0.2)(norm)
 
-    model.add(Conv2D(init_num_filters * min(2 ** n_layers, 8), kernel_size, padding='same',
-                     use_bias=use_bias))
-    model.add(get_norm_layer(norm_layer))
-    model.add(LeakyReLU(0.2))
-    model.add(Conv2D(1, kernel_size, padding='same', activation=final_activation, kernel_initializer=conv_kernel_init,
-                     bias_initializer=conv_bias_init))
+    conv = Conv2D(init_num_filters * min(2 ** n_layers, 8), kernel_size, padding='same', use_bias=use_bias)(act)
+    norm = get_norm_layer(norm_layer)(conv)
+    act = LeakyReLU(0.2)(norm)
+    conv = Conv2D(1, kernel_size, padding='same', activation=final_activation, kernel_initializer=conv_kernel_init,
+                  bias_initializer=conv_bias_init)(act)
+    
+    model = Model(inputs=input_img, outputs=conv)
 
     return model
