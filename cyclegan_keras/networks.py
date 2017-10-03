@@ -7,7 +7,7 @@ import numpy as np
 from keras.models import Model, Input
 from keras.layers import (Conv2D, Conv2DTranspose, BatchNormalization, LeakyReLU, Dropout, ZeroPadding2D, concatenate,
                           Activation, Add, UpSampling2D)
-from keras.initializers import Zeros, RandomNormal
+from keras.initializers import Ones, Zeros, RandomNormal
 
 from .utils import get_channel_axis, get_input_shape
 
@@ -15,15 +15,15 @@ from .utils import get_channel_axis, get_input_shape
 def get_norm_layer(layer_name):
     if layer_name == 'batch':
         return BatchNormalization(axis=get_channel_axis(), gamma_initializer=RandomNormal(1.0, 0.02),
-                                  beta_initializer=Zeros(), moving_mean_initializer=RandomNormal(1.0, 0.02),
-                                  moving_variance_initializer=Zeros())
+                                  beta_initializer=Zeros(), moving_mean_initializer=Zeros(),
+                                  moving_variance_initializer=Ones())
     elif layer_name == 'instance':
         try:
             from keras_contrib.layers import InstanceNormalization
         except ImportError:
             raise ImportError('keras_contrib is required to use InstanceNormalization layers. Install keras_contrib or '
                               'switch normalization to "batch".')
-        return InstanceNormalization()
+        return InstanceNormalization(axis=get_channel_axis())
     else:
         return NotImplementedError('Normalization layer name [%s] is not recognized.' % layer_name)
 
@@ -32,7 +32,7 @@ def get_conv_initialiers():
     return RandomNormal(0.0, 0.2), Zeros()
 
 
-def build_generator_model(image_size, input_nc, output_nc, init_num_filters, model_name, norm_layer='batch',
+def build_generator_model(image_size, input_nc, output_nc, init_num_filters, model_name, norm_layer='instance',
                           use_dropout=False):
     
     if model_name == 'unet_128':
@@ -53,7 +53,7 @@ def build_generator_model(image_size, input_nc, output_nc, init_num_filters, mod
     return gen_model
 
 
-def build_discriminator_model(image_size, input_nc, init_num_filters, n_layers=3, norm_layer='batch',
+def build_discriminator_model(image_size, input_nc, init_num_filters, n_layers=3, norm_layer='instance',
                               use_sigmoid=False):
     
     dis_model = build_nlayer_discriminator(image_size, input_nc, init_num_filters, n_layers, norm_layer,
@@ -62,7 +62,7 @@ def build_discriminator_model(image_size, input_nc, init_num_filters, n_layers=3
     return dis_model
 
 
-def build_unet(image_size, input_nc, output_nc, init_num_filters, norm_layer='batch', n_levels=7, use_dropout=False,
+def build_unet(image_size, input_nc, output_nc, init_num_filters, norm_layer='instance', n_levels=7, use_dropout=False,
                dropout_rate=0.5, autoencoder=True):
 
     kernel_size = (4, 4)
@@ -122,7 +122,7 @@ def build_unet(image_size, input_nc, output_nc, init_num_filters, norm_layer='ba
     return model
 
 
-def build_resnet(image_size, input_nc, output_nc, init_num_filters, norm_layer='batch', padding_layer='zero',
+def build_resnet(image_size, input_nc, output_nc, init_num_filters, norm_layer='instance', padding_layer='zero',
                  n_blocks=6, use_dropout=False, dropout_rate=0.5):
     outer_kernel_size = (7, 7)
     outer_padding_size = ((int(math.ceil((outer_kernel_size[0] - 1) / 2)),
@@ -216,7 +216,7 @@ def build_pixel_gan(input_shape, init_num_filters, norm_layer, use_bias, final_a
     return model
 
 
-def build_nlayer_discriminator(image_size, input_nc, init_num_filters=64, n_layers=3, norm_layer='batch',
+def build_nlayer_discriminator(image_size, input_nc, init_num_filters=64, n_layers=3, norm_layer='instance',
                                use_sigmoid=False, use_dropout=False, dropout_rate=0.5):
     kernel_size = (4, 4)
     conv_kernel_init, conv_bias_init = get_conv_initialiers()
