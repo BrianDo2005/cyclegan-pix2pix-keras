@@ -21,31 +21,31 @@ from .utils import get_input_shape
 class CycleGAN(object):
 
     def __init__(self, image_size, input_nc, output_nc, generator_name, discriminator_layers, init_num_filters_gen,
-                 init_num_filters_dis, use_lsgan, use_dropout, norm_layer, learning_rate, beta1, lambda_a,
+                 init_num_filters_dis, use_lsgan, use_dropout, norm_layer, deconv_type, learning_rate, beta1, lambda_a,
                  lambda_b, id_bool, id_lambda, stacked_training, continue_training, model_dir, exp_to_load,
                  which_epoch):
-        self.image_size = image_size
         self.id_bool = id_bool
         self.lr = learning_rate
         self.beta1 = beta1
-        self.input_nc = input_nc
-        self.output_nc = output_nc
         self.stacked_training = stacked_training
         self.input_a = None
         self.input_b = None
         self.generative_model = None
         self.adversarial_model = None
         
-        if self.id_bool and self.input_nc != self.output_nc:
+        self.image_size_a = get_input_shape(image_size, input_nc)
+        self.image_size_b = get_input_shape(image_size, output_nc)
+        
+        if self.id_bool and input_nc != output_nc:
             raise ValueError('Identity mapping is not supported with unequal channels between inputs and outputs.')
         
         if continue_training:
             self.load_models(model_dir, exp_to_load, which_epoch)
         else:
             self.gen_a = build_generator_model(image_size, input_nc, output_nc, init_num_filters_gen, generator_name,
-                                               norm_layer, use_dropout)
+                                               norm_layer, deconv_type, use_dropout)
             self.gen_b = build_generator_model(image_size, output_nc, input_nc, init_num_filters_gen, generator_name,
-                                               norm_layer, use_dropout)
+                                               norm_layer, deconv_type, use_dropout)
             self.dis_a = build_discriminator_model(image_size, input_nc, init_num_filters_dis, discriminator_layers,
                                                    norm_layer, not use_lsgan)
             self.dis_b = build_discriminator_model(image_size, output_nc, init_num_filters_dis, discriminator_layers,
@@ -82,14 +82,11 @@ class CycleGAN(object):
         self.dis_b = load_model(os.path.join(model_dir, exp_to_load + '_D_B_epoch%03d.h5' % epoch_number))
         
     def compile(self):
-        image_size_a = get_input_shape(self.image_size, self.input_nc)
-        image_size_b = get_input_shape(self.image_size, self.output_nc)
-        
         # Build adversarial models
-        real_a = Input(shape=image_size_a)
-        fake_a = Input(shape=image_size_a)
-        real_b = Input(shape=image_size_b)
-        fake_b = Input(shape=image_size_b)
+        real_a = Input(shape=self.image_size_a)
+        fake_a = Input(shape=self.image_size_a)
+        real_b = Input(shape=self.image_size_b)
+        fake_b = Input(shape=self.image_size_b)
     
         dis_real_a = self.dis_a(real_a)
         dis_fake_a = self.dis_a(fake_a)
@@ -103,12 +100,12 @@ class CycleGAN(object):
         self.make_trainable(self.adversarial_model, not self.stacked_training)
         
         # Build generative model
-        real_a = Input(shape=image_size_a)  # A
+        real_a = Input(shape=self.image_size_a)  # A
         fake_b = self.gen_a(real_a)  # B' = G_A(A)
         recon_a = self.gen_b(fake_b)  # A'' = G_B(G_A(A))
         dis_fake_b = self.dis_b(fake_b)  # D_A(G_A(A))
         
-        real_b = Input(shape=image_size_b)  # B
+        real_b = Input(shape=self.image_size_b)  # B
         fake_a = self.gen_b(real_b)  # A' = G_B(B)
         recon_b = self.gen_a(fake_a)  # B'' = G_A(G_B(B))
         dis_fake_a = self.dis_a(fake_a)  # D_B(G_B(B))
