@@ -23,13 +23,15 @@ class CycleGAN(object):
 
     def __init__(self, image_size, input_nc, output_nc, generator_name, discriminator_layers, init_num_filters_gen,
                  init_num_filters_dis, use_lsgan, use_dropout, norm_layer, learning_rate, beta1, lambda_a,
-                 lambda_b, id_bool, id_lambda, continue_training, model_dir, exp_to_load, which_epoch):
+                 lambda_b, id_bool, id_lambda, stacked_training, continue_training, model_dir, exp_to_load,
+                 which_epoch):
         self.image_size = image_size
         self.id_bool = id_bool
         self.lr = learning_rate
         self.beta1 = beta1
         self.input_nc = input_nc
         self.output_nc = output_nc
+        self.stacked_training = stacked_training
         self.input_a = None
         self.input_b = None
         self.generative_model = None
@@ -99,7 +101,7 @@ class CycleGAN(object):
                                        [dis_real_a, dis_fake_a, dis_real_b, dis_fake_b])
         self.adversarial_model.compile(optimizer=Adam(self.lr, self.beta1), loss=self.gan_loss)
         
-        self.make_trainable(self.adversarial_model, False)
+        self.make_trainable(self.adversarial_model, not self.stacked_training)
         
         # Build generative model
         real_a = Input(shape=image_size_a)  # A
@@ -169,7 +171,7 @@ class CycleGAN(object):
                     print(message)
                     sys.stdout.flush()
                 
-            self.make_trainable(self.adversarial_model, False)
+            self.make_trainable(self.adversarial_model, not self.stacked_training)
             mean_loss = []
             for loss in zip(*losses):
                 mean_loss.append(np.mean(loss))
@@ -206,7 +208,7 @@ class CycleGAN(object):
                                                           [real_labels, fake_labels, real_labels, fake_labels])
                 d_loss = [d_a_loss_real, d_a_loss_fake, d_b_loss_real, d_b_loss_fake]
                 
-                self.make_trainable(self.adversarial_model, False)
+                self.make_trainable(self.adversarial_model, not self.stacked_training)
                 
                 if self.id_bool:
                     _, g_loss_dis_b, g_loss_dis_a, g_loss_rec_a, g_loss_rec_b, g_loss_id_a, g_loss_id_b = \
@@ -235,13 +237,13 @@ class CycleGAN(object):
                     print(message)
                     sys.stdout.flush()
 
-                    fake_a = self.gen_b.predict(real_b)
-                    fake_b = self.gen_a.predict(real_a)
-                    rec_a = self.gen_b.predict(fake_b)
-                    rec_b = self.gen_a.predict(fake_a)
+                    fake_a = self.gen_b.predict(real_b)[0, ...]
+                    fake_b = self.gen_a.predict(real_a)[0, ...]
+                    rec_a = self.gen_b.predict(fake_b)[0, ...]
+                    rec_b = self.gen_a.predict(fake_a)[0, ...]
                     if self.id_bool:
-                        id_a = self.gen_a.predict(real_b)
-                        id_b = self.gen_b.predict(real_a)
+                        id_a = self.gen_a.predict(real_b)[0, ...]
+                        id_b = self.gen_b.predict(real_a)[0, ...]
                         visuals = OrderedDict([('real_A', real_a), ('fake_B', fake_b), ('rec_A', rec_a),
                                                ('idt_B', id_b),  ('real_B', real_b), ('fake_A', fake_a),
                                                ('rec_B', rec_b), ('idt_A', id_a)])

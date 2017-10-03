@@ -75,6 +75,8 @@ if __name__ == '__main__':
                                 '(lambda_id_a = lambda_a * lambda_id). For example, if the weight of '
                                 'the identity loss should be 10 times smaller than the weight of the '
                                 'reconstruction loss, please set `lambda_id` = 0.1'))
+    training.add_argument('--stacked-training', action='store_true', default=False,
+                          help='use stacked training, freezing the adversarial model during joint model training')
     training.add_argument('--continue-training', action='store_true', default=False,
                           help=('Continue training? Loads models from `model_dir` to continue training. '
                                 'Loading an existing model overwrites any options in the `model` group.'))
@@ -112,8 +114,8 @@ if __name__ == '__main__':
     cyclegan_model = CycleGAN(args.image_size, args.input_nc, args.output_nc, args.generator_name, args.num_layers_dis,
                               args.init_filters_gen, args.init_filters_dis, not args.no_lsgan, not args.no_dropout,
                               args.norm_method, args.learning_rate, args.beta1, args.lambda_a, args.lambda_b,
-                              args.use_identity_loss, args.lambda_id, args.continue_training, args.model_dir,
-                              args.experiment_to_load, args.which_epoch)
+                              args.use_identity_loss, args.lambda_id, args.stacked_training, args.continue_training,
+                              args.model_dir, args.experiment_to_load, args.which_epoch)
     cyclegan_model.connect_inputs(img_generator_a, img_generator_b)
     cyclegan_model.fit(args.model_dir, args.experiment_name, args.batch_size, args.pool_size, args.n_epochs,
                        args.n_epochs_decay, args.steps_per_epoch, args.pretrain_iter, args.save_epoch_freq,
