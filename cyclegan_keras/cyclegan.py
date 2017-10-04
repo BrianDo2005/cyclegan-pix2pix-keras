@@ -190,8 +190,8 @@ class CycleGAN(object):
                 iter_start_time = time.time()
                 total_steps += 1
                 
-                real_a, _ = self.input_a(batch_size)
-                real_b, _ = self.input_b(batch_size)
+                real_a, continuing_a = self.input_a(batch_size)
+                real_b, continuing_b = self.input_b(batch_size)
 
                 pool_a.add_to_pool(self.gen_b.predict(real_b))
                 pool_b.add_to_pool(self.gen_a.predict(real_a))
@@ -249,7 +249,11 @@ class CycleGAN(object):
                                                ('rec_A', rec_a[0, ...]), ('real_B', real_b[0, ...]),
                                                ('fake_A', fake_a[0, ...]), ('rec_B', rec_b[0, ...])])
                     save_training_page(os.path.join(model_dir, 'web'), experiment_name, visuals, epoch)
-
+                    
+                if not (continuing_a and continuing_b):
+                    break
+            
+            losses.extend(iter_losses)
             mean_loss = []
             for loss in zip(*losses):
                 mean_loss.append(np.mean(loss))
