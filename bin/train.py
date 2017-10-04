@@ -61,7 +61,7 @@ if __name__ == '__main__':
     training.add_argument('--pool_size', type=int, default=50,
                           help=('the size of image buffer that stores previously generated images '
                                 'for discrimnator training'))
-    training.add_argument('--pretrain-iter', type=int, default=1000,
+    training.add_argument('--pretrain-iter', type=int, default=0,
                           help=('the number of pretraining batches to run on the adversarial model'
                                 ' before starting GAN'))
     training.add_argument('--beta1', type=float, default=0.5, help='momentum term of adam')
