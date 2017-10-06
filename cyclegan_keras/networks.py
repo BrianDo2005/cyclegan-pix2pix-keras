@@ -18,7 +18,7 @@ def deconv_block(previous, block_type, num_filters, kernel_size, strides, paddin
                                kernel_initializer=kernel_init, bias_initializer=bias_init)(previous)
     elif block_type == 'upsample':
         upsample = UpSampling2D(size=strides)(previous)
-        return Conv2D(num_filters, kernel_size, strides=strides, padding=padding, use_bias=use_bias,
+        return Conv2D(num_filters, kernel_size, padding=padding, use_bias=use_bias,
                       kernel_initializer=kernel_init, bias_initializer=bias_init)(upsample)
     else:
         return NotImplementedError('Upsampling block name [%s] is not recognized.' % block_type)
@@ -73,7 +73,7 @@ def build_discriminator_model(image_size, input_nc, init_num_filters, n_layers=3
 
 
 def build_unet(image_size, input_nc, output_nc, init_num_filters, norm_layer='instance', deconv_type='upsample',
-               n_levels=7, use_dropout=False, dropout_rate=0.5, autoencoder=True):
+               n_levels=7, use_dropout=False, dropout_rate=0.5, autoencoder=False):
 
     kernel_size = (4, 4)
     conv_kernel_init, conv_bias_init = get_conv_initialiers()
@@ -89,37 +89,37 @@ def build_unet(image_size, input_nc, output_nc, init_num_filters, norm_layer='in
     
     for i in range(1, n_levels - 1):
         relu = LeakyReLU(0.2)(prev)
-        conv = Conv2D(init_num_filters * max(2 ** i, 8), kernel_size, strides=(2, 2), padding='same',
+        conv = Conv2D(init_num_filters * min(2 ** i, 8), kernel_size, strides=(2, 2), padding='same',
                       use_bias=use_bias, kernel_initializer=conv_kernel_init, bias_initializer=conv_bias_init)(relu)
         prev = get_norm_layer(norm_layer)(conv)
         nodes_for_concat.append(prev)
         
     relu = LeakyReLU(0.2)(prev)
-    conv = Conv2D(init_num_filters * max(2 ** n_levels - 1, 8), kernel_size, strides=(2, 2), padding='same',
+    conv = Conv2D(init_num_filters * min(2 ** n_levels - 1, 8), kernel_size, strides=(2, 2), padding='same',
                   use_bias=use_bias, kernel_initializer=conv_kernel_init, bias_initializer=conv_bias_init)(relu)
     relu = Activation('relu')(conv)
-    deconv = deconv_block(relu, deconv_type, init_num_filters * max(2 ** n_levels - 2, 8), kernel_size, strides=(2, 2),
+    deconv = deconv_block(relu, deconv_type, init_num_filters * min(2 ** n_levels - 2, 8), kernel_size, strides=(2, 2),
                           padding='same', use_bias=use_bias, kernel_init=conv_kernel_init,
-                          bias_init=conv_bias_init)(relu)
+                          bias_init=conv_bias_init)
 
     for i in reversed(range(1, n_levels - 1)):
         norm = get_norm_layer(norm_layer)(deconv)
-        if use_dropout:
+        if use_dropout and i > ((n_levels - 1)/2):
             norm = Dropout(dropout_rate)(norm)
         if not autoencoder:
-            norm = concatenate(norm, [nodes_for_concat[i]], axis=get_channel_axis())
+            norm = concatenate([nodes_for_concat[i], norm], axis=get_channel_axis())
         relu = Activation('relu')(norm)
-        deconv = deconv_block(relu, deconv_type, init_num_filters * max(2 ** i, 8), kernel_size, strides=(2, 2),
+        deconv = deconv_block(relu, deconv_type, init_num_filters * min(2 ** i, 8), kernel_size, strides=(2, 2),
                               padding='same', use_bias=use_bias, kernel_init=conv_kernel_init,
-                              bias_init=conv_bias_init)(relu)
-            
+                              bias_init=conv_bias_init)
+
     norm = get_norm_layer(norm_layer)(deconv)
-    if not autoencoder:
-        norm = concatenate([norm, nodes_for_concat[0]], axis=get_channel_axis())
     relu = Activation('relu')(norm)
-    conv = Conv2D(output_nc, kernel_size, strides=(2, 2), padding='same', use_bias=use_bias,
-                  kernel_initializer=conv_kernel_init, bias_initializer=conv_bias_init)(relu)
-    act = Activation('tanh')(conv)
+    deconv = deconv_block(relu, deconv_type, output_nc, kernel_size, strides=(2, 2),
+                          padding='same', use_bias=use_bias, kernel_init=conv_kernel_init,
+                          bias_init=conv_bias_init)
+    
+    act = Activation('tanh')(deconv)
     model = Model(inputs=input_img, outputs=act)
 
     return model
@@ -163,7 +163,7 @@ def build_resnet(image_size, input_nc, output_nc, init_num_filters, norm_layer='
     
     for i in reversed(range(n_downsamples)):
         deconv = deconv_block(act, deconv_type, init_num_filters * (2**i), kernel_size, strides=(2, 2), padding='same',
-                              use_bias=use_bias, kernel_init=conv_kernel_init, bias_init=conv_bias_init)(act)
+                              use_bias=use_bias, kernel_init=conv_kernel_init, bias_init=conv_bias_init)
         norm = get_norm_layer(norm_layer)(deconv)
         act = Activation('relu')(norm)
 
