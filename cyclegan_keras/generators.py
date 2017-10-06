@@ -66,7 +66,10 @@ class ImageFileGenerator(InputGenerator):
             if self.resize is not None:
                 img = imresize(img, self.resize)
             if self.crop_size is not None:
-                img = self.random_crop(img)
+                temp = np.zeros_like(img)
+                while np.sum(temp) == 0:
+                    temp = self.random_crop(img)
+                img = temp
             if len(img.shape) < 3:
                 img = np.reshape(img, img.shape + (1,))
             if self.flip:
