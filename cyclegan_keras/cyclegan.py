@@ -238,12 +238,12 @@ class CycleGAN(object):
                     rec_a = self.gen_b.predict(fake_b)
                     rec_b = self.gen_a.predict(fake_a)
                     if self.id_bool:
-                        id_a = self.gen_a.predict(real_b)
-                        id_b = self.gen_b.predict(real_a)
+                        id_a = self.gen_b.predict(real_a)
+                        id_b = self.gen_a.predict(real_b)
                         visuals = OrderedDict([('real_A', real_a[0, ...]), ('fake_B', fake_b[0, ...]),
-                                               ('rec_A', rec_a[0, ...]), ('idt_B', id_b[0, ...]),
+                                               ('rec_A', rec_a[0, ...]), ('idt_A', id_a[0, ...]),
                                                ('real_B', real_b[0, ...]), ('fake_A', fake_a[0, ...]),
-                                               ('rec_B', rec_b[0, ...]), ('idt_A', id_a[0, ...])])
+                                               ('rec_B', rec_b[0, ...]), ('idt_b', id_b[0, ...])])
                     else:
                         visuals = OrderedDict([('real_A', real_a[0, ...]), ('fake_B', fake_b[0, ...]),
                                                ('rec_A', rec_a[0, ...]), ('real_B', real_b[0, ...]),
