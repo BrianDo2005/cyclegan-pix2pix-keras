@@ -161,7 +161,7 @@ class CycleGAN(object):
                     losses.extend(iter_losses)
                     iter_losses = []
                     time_per_img = (time.time() - iter_start_time) / batch_size
-                    message = '(Pre-Train, iter: %d, time: %.3f) ' % (step+1, time_per_img)
+                    message = '(Pre-Train, iter: %d, time: %.3f) ' % (step, time_per_img)
                     for name, loss in zip(self.loss_names, mean_iter_loss):
                         message += '%s: %.3f ' % (name, loss)
                     print(message)
