@@ -1,6 +1,8 @@
 import argparse
 
-from cyclegan_keras.cyclegan import PredictionModel, ImageFileGenerator, ImageFileOutputSink
+from cyclegan_keras.cyclegan import PredictionModel
+from cyclegan_keras.generators import ImageFileGenerator
+from cyclegan_keras.sinks import ImageFileOutputSink
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

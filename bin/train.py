@@ -2,7 +2,8 @@ import os
 import argparse
 import datetime
 
-from cyclegan_keras.cyclegan import CycleGAN, ImageFileGenerator
+from cyclegan_keras.cyclegan import CycleGAN
+from cyclegan_keras.generators import ImageFileGenerator
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -36,12 +37,15 @@ if __name__ == '__main__':
     model.add_argument('--init-filters-gen', type=int, default=64, help='# of gen filters in first conv layer')
     model.add_argument('--init-filters-dis', type=int, default=64, help='# of discrim filters in first conv layer')
     model.add_argument('--generator-name', type=str, default='resnet_9blocks',
-                       choices=['resnet_6blocks', 'resnet_9blocks', 'unet128', 'unet256'],
+                       choices=['resnet_6blocks', 'resnet_9blocks', 'unet_128', 'unet_256'],
                        help='selects model to use for generator network')
     model.add_argument('--num-layers-dis', type=int, default=3,
                        help='number of layers in discriminator network (PatchGAN)')
     model.add_argument('--norm-method', type=str, choices=['instance', 'batch'], default='instance',
                        help='normalization method (instance or batch normalization)')
+    model.add_argument('--deconv-method', type=str, choices=['deconv', 'upsample'], default='upsample',
+                       help='method to use for deconvolution. "deconv" uses the Conv2DTranspose layer, '
+                            'while "upsample" uses Upsampling2D followed by Conv2D')
     model.add_argument('--no-dropout', action='store_true', default=False, help='no dropout for the generator')
     
     training = parser.add_argument_group('training')
@@ -57,6 +61,9 @@ if __name__ == '__main__':
     training.add_argument('--pool_size', type=int, default=50,
                           help=('the size of image buffer that stores previously generated images '
                                 'for discrimnator training'))
+    training.add_argument('--pretrain-iter', type=int, default=0,
+                          help=('the number of pretraining batches to run on the adversarial model'
+                                ' before starting GAN'))
     training.add_argument('--beta1', type=float, default=0.5, help='momentum term of adam')
     training.add_argument('--learning-rate', type=float, default=0.0002, help='initial learning rate for adam')
     training.add_argument('--no-lsgan', action='store_true', default=False,
@@ -72,6 +79,8 @@ if __name__ == '__main__':
                                 '(lambda_id_a = lambda_a * lambda_id). For example, if the weight of '
                                 'the identity loss should be 10 times smaller than the weight of the '
                                 'reconstruction loss, please set `lambda_id` = 0.1'))
+    training.add_argument('--stacked-training', action='store_true', default=False,
+                          help='use stacked training, freezing the adversarial model during joint model training')
     training.add_argument('--continue-training', action='store_true', default=False,
                           help=('Continue training? Loads models from `model_dir` to continue training. '
                                 'Loading an existing model overwrites any options in the `model` group.'))
@@ -108,10 +117,10 @@ if __name__ == '__main__':
         
     cyclegan_model = CycleGAN(args.image_size, args.input_nc, args.output_nc, args.generator_name, args.num_layers_dis,
                               args.init_filters_gen, args.init_filters_dis, not args.no_lsgan, not args.no_dropout,
-                              args.norm_method, args.learning_rate, args.beta1, args.lambda_a, args.lambda_b,
-                              args.use_identity_loss, args.lambda_id, args.continue_training, args.model_dir,
-                              args.experiment_to_load, args.which_epoch)
+                              args.norm_method, args.deconv_method, args.learning_rate, args.beta1, args.lambda_a,
+                              args.lambda_b, args.use_identity_loss, args.lambda_id, args.stacked_training,
+                              args.continue_training, args.model_dir, args.experiment_to_load, args.which_epoch)
     cyclegan_model.connect_inputs(img_generator_a, img_generator_b)
     cyclegan_model.fit(args.model_dir, args.experiment_name, args.batch_size, args.pool_size, args.n_epochs,
-                       args.n_epochs_decay, args.steps_per_epoch, args.save_epoch_freq, args.print_freq,
-                       args.starting_epoch)
+                       args.n_epochs_decay, args.steps_per_epoch, args.pretrain_iter, args.save_epoch_freq,
+                       args.print_freq, args.starting_epoch)
