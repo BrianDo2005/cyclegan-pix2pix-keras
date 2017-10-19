@@ -1,6 +1,6 @@
 import argparse
 
-from cyclegan_keras.cyclegan import PredictionModel
+from cyclegan_keras.models import PredictionModel
 from cyclegan_keras.generators import ImageFileGenerator
 from cyclegan_keras.sinks import ImageFileOutputSink
 
