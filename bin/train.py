@@ -2,8 +2,8 @@ import os
 import argparse
 import datetime
 
-from cyclegan_keras.models import CycleGAN, Pix2Pix, SingleCovNet
-from cyclegan_keras.generators import ImageFileGenerator, PairedImageFileGenerator
+from cyclegan_pix2pix_keras.models import CycleGAN, Pix2Pix, SingleCovNet
+from cyclegan_pix2pix_keras.generators import ImageFileGenerator, PairedImageFileGenerator
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -130,9 +130,9 @@ if __name__ == '__main__':
                         args.continue_training, args.model_dir, args.experiment_to_load, args.which_epoch)
     else:
         model = SingleCovNet(args.image_size, args.input_nc, args.output_nc, args.generator_name,
-                              args.init_filters_gen, not args.no_dropout, args.norm_method, args.deconv_method,
-                              args.learning_rate, args.beta1, args.continue_training, args.model_dir,
-                              args.experiment_to_load, args.which_epoch)
+                             args.init_filters_gen, not args.no_dropout, args.norm_method, args.deconv_method,
+                             args.learning_rate, args.beta1, args.continue_training, args.model_dir,
+                             args.experiment_to_load, args.which_epoch)
 
     if args.model_name == 'cyclegan':
         img_generator_a = ImageFileGenerator(os.path.join(args.dataroot, 'trainA'), args.scale_size, args.crop_size,
