@@ -2,8 +2,8 @@ import os
 import argparse
 import datetime
 
-from cyclegan_keras.cyclegan import CycleGAN
-from cyclegan_keras.generators import ImageFileGenerator
+from cyclegan_keras.models import CycleGAN, Pix2Pix, SingleCovNet
+from cyclegan_keras.generators import ImageFileGenerator, PairedImageFileGenerator
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -14,14 +14,14 @@ if __name__ == '__main__':
                           help=('Directory where model definition files are saved during training. Models will be '
                                 'saved as `model_dir`/`experiment_name`_{G_A,G_B,D_A,D_B}_epoch##.h5'))
     required.add_argument('--experiment-name', type=str, 
-                          default='cyclegan_'+datetime.datetime.now().strftime('%Y%m%d_%H%M%S'),
+                          default='synthesis_'+datetime.datetime.now().strftime('%Y%m%d_%H%M%S'),
                           help=('Experiment name for use in naming model definition files. Models will be saved '
                                 'as `model_dir`/`experiment_name`_{G_A,G_B,D_A,D_B}_epoch##.h5. Defaults to '
                                 '"cyclegan_{CURRENT_DATE_TIME}".'))
     
     images = parser.add_argument_group('images')
-    images.add_argument('--input_nc', type=int, default=3, help='# of input image channels')
-    images.add_argument('--output_nc', type=int, default=3, help='# of output image channels')
+    images.add_argument('--input-nc', type=int, default=3, help='# of input image channels')
+    images.add_argument('--output-nc', type=int, default=3, help='# of output image channels')
     images.add_argument('--image-size', type=int, default=128,
                         help='size of input images (not used if `crop_images` or resize_images` is set)')
     images.add_argument('--resize-images', action='store_true', default=False,
@@ -34,6 +34,9 @@ if __name__ == '__main__':
     images.add_argument('--crop-size', type=int, default=256, help='then crop to this size')
     
     model = parser.add_argument_group('model')
+    model.add_argument('--model-name', type=str, choices=['singlecovnet', 'pix2pix', 'cyclegan'],
+                       default='cyclegan', help='Type of model to fit. Choose one of: "singlecovnet", "pix2pix", '
+                                                '"cyclegan".')
     model.add_argument('--init-filters-gen', type=int, default=64, help='# of gen filters in first conv layer')
     model.add_argument('--init-filters-dis', type=int, default=64, help='# of discrim filters in first conv layer')
     model.add_argument('--generator-name', type=str, default='resnet_9blocks',
@@ -79,11 +82,13 @@ if __name__ == '__main__':
                                 '(lambda_id_a = lambda_a * lambda_id). For example, if the weight of '
                                 'the identity loss should be 10 times smaller than the weight of the '
                                 'reconstruction loss, please set `lambda_id` = 0.1'))
-    training.add_argument('--stacked-training', action='store_true', default=False,
-                          help='use stacked training, freezing the adversarial model during joint model training')
+    training.add_argument('--no-stacked-training', action='store_true', default=False,
+                          help='don\'t use stacked training, allow the adversarial model to change during joint model '
+                               'training')
     training.add_argument('--continue-training', action='store_true', default=False,
                           help=('Continue training? Loads models from `model_dir` to continue training. '
-                                'Loading an existing model overwrites any options in the `model` group.'))
+                                'Loading an existing model overwrites any options in the `model` group (except '
+                                '`model_name`).'))
     training.add_argument('--experiment-to-load', type=str,
                           help='Experiment name to load (if different from `experiment_name`)')
     training.add_argument('--which-epoch', type=str, default='latest',
@@ -109,18 +114,38 @@ if __name__ == '__main__':
         
     if args.experiment_to_load is None:
         args.experiment_to_load = args.experiment_name
-        
-    img_generator_a = ImageFileGenerator(os.path.join(args.dataroot, 'trainA'), args.scale_size, args.crop_size,
-                                         args.flip_images)
-    img_generator_b = ImageFileGenerator(os.path.join(args.dataroot, 'trainB'), args.scale_size, args.crop_size,
-                                         args.flip_images)
-        
-    cyclegan_model = CycleGAN(args.image_size, args.input_nc, args.output_nc, args.generator_name, args.num_layers_dis,
-                              args.init_filters_gen, args.init_filters_dis, not args.no_lsgan, not args.no_dropout,
-                              args.norm_method, args.deconv_method, args.learning_rate, args.beta1, args.lambda_a,
-                              args.lambda_b, args.use_identity_loss, args.lambda_id, args.stacked_training,
-                              args.continue_training, args.model_dir, args.experiment_to_load, args.which_epoch)
-    cyclegan_model.connect_inputs(img_generator_a, img_generator_b)
-    cyclegan_model.fit(args.model_dir, args.experiment_name, args.batch_size, args.pool_size, args.n_epochs,
-                       args.n_epochs_decay, args.steps_per_epoch, args.pretrain_iter, args.save_epoch_freq,
-                       args.print_freq, args.starting_epoch)
+    
+    if args.model_name == 'cyclegan':
+        model = CycleGAN(args.image_size, args.input_nc, args.output_nc, args.generator_name,
+                         args.num_layers_dis, args.init_filters_gen, args.init_filters_dis, not args.no_lsgan,
+                         not args.no_dropout, args.norm_method, args.deconv_method, args.learning_rate,
+                         args.beta1, args.lambda_a, args.lambda_b, args.use_identity_loss, args.lambda_id,
+                         args.pretrain_iter, args.pool_size, not args.no_stacked_training,  args.continue_training,
+                         args.model_dir, args.experiment_to_load, args.which_epoch)
+    elif args.model_name == 'pix2pix':
+        model = Pix2Pix(args.image_size, args.input_nc, args.output_nc, args.generator_name,
+                        args.num_layers_dis, args.init_filters_gen, args.init_filters_dis, not args.no_lsgan,
+                        not args.no_dropout, args.norm_method, args.deconv_method, args.learning_rate,
+                        args.beta1, args.lambda_a, args.pretrain_iter, args.pool_size, not args.no_stacked_training,
+                        args.continue_training, args.model_dir, args.experiment_to_load, args.which_epoch)
+    else:
+        model = SingleCovNet(args.image_size, args.input_nc, args.output_nc, args.generator_name,
+                              args.init_filters_gen, not args.no_dropout, args.norm_method, args.deconv_method,
+                              args.learning_rate, args.beta1, args.continue_training, args.model_dir,
+                              args.experiment_to_load, args.which_epoch)
+
+    if args.model_name == 'cyclegan':
+        img_generator_a = ImageFileGenerator(os.path.join(args.dataroot, 'trainA'), args.scale_size, args.crop_size,
+                                             args.flip_images)
+        img_generator_b = ImageFileGenerator(os.path.join(args.dataroot, 'trainB'), args.scale_size, args.crop_size,
+                                             args.flip_images)
+        model.connect_inputs(input_a=img_generator_a, input_b=img_generator_b)
+    else:
+        img_generator = PairedImageFileGenerator(os.path.join(args.dataroot, 'trainA'),
+                                                 os.path.join(args.dataroot, 'trainB'),
+                                                 args.scale_size, args.crop_size, args.flip_images)
+        model.connect_inputs(input=img_generator)
+    
+    model.fit(args.model_dir, args.experiment_name, args.batch_size, args.n_epochs,
+              args.n_epochs_decay, args.steps_per_epoch, args.save_epoch_freq,
+              args.print_freq, args.starting_epoch)
