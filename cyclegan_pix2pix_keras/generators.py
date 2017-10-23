@@ -68,16 +68,14 @@ class ImageFileGenerator(InputGenerator):
             if self.resize is not None:
                 img = imresize(img, self.resize)
             if self.crop_size is not None:
-                temp = np.zeros_like(img)
-                while np.sum(temp) == 0:
-                    temp = self.random_crop(img)
-                img = temp
+                img = self.random_crop(img)
             if len(img.shape) < 3:
                 img = np.reshape(img, img.shape + (1,))
             if self.flip:
                 img = img[:, ::-1, :]
             # WARNING: This was copied from PyTorch version and may not be applicable to images not in [0,255]
-            img = (img / (img.max() / 2)) - 1
+            # This was modified to allow images that are all 0s
+            img = ((img / (img.max() / 2.0)) - 1.0) if np.sum(img) > 0 else (img - 1.0)
             # END WARNING
             batch.append(img)
         batch = np.array(batch)
@@ -172,8 +170,9 @@ class PairedImageFileGenerator(InputGenerator):
                 img_a = img_a[:, ::-1, :]
                 img_b = img_b[:, ::-1, :]
             # WARNING: This was copied from PyTorch version and may not be applicable to images not in [0,255]
-            img_a = ((img_a / (img_a.max() / 2)) - 1) if np.sum(img_a) > 0 else (img_a - 1)
-            img_b = ((img_b / (img_b.max() / 2)) - 1) if np.sum(img_b) > 0 else (img_b - 1)
+            # This was modified to allow images that are all 0s
+            img_a = ((img_a / (img_a.max() / 2.0)) - 1.0) if np.sum(img_a) > 0 else (img_a - 1.0)
+            img_b = ((img_b / (img_b.max() / 2.0)) - 1.0) if np.sum(img_b) > 0 else (img_b - 1.0)
             # END WARNING
             batch_a.append(img_a)
             batch_b.append(img_b)
